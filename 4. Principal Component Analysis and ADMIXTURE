@@ -1,0 +1,40 @@
+## 4.1 plink过滤 
+
+输入文件为[[1 获取群体变异信息vcf文件-工作流#1.7 将外群剔除]]生成的Species_NO_OG_SNP.vcf.gz
+
+①将vcf文件转为ped格式文件（如果前面没过滤，或者过滤条件你觉得不够严格，可以在这一步添加vcf的过滤数据条件例如--maf --max-missing）
+
+	vcftools --gzvcf Species_NO_OG_SNP.vcf.gz --chrom-map chrom_map.txt --plink --out Species.pedformat
+
+②获取连锁平衡位点的坐标，用于提取上一步获取的ped文件中连锁平衡位点（染色体--chr-set参数记得改为你染色体的数量，数量等同于比对使用的参考基因组的染色体数量）
+
+	plink --file Species.pedformat --indep-pairwise 50 5 0.5 --chr-set n --out plink_filter
+
+③提取ped文件中连锁平衡的位点
+
+	plink --file Species.pedformat --extract plink_filter.prune.in --chr-set n --out Species.filter.pedformat
+
+④将ped文件转换成bed文件
+
+	plink --file Species.filter.pedformat --chr-set n --make-bed --out Species.bedformat
+
+## 4.2 PCA
+
+	gcta64 --bfile Species.bedformat \
+		   --make-grm \
+		   --autosome \
+		   --out Species_total_SNP.grim
+
+	gcta64 --grm Species_total_SNP.grim \
+		   --pca 3 \
+		   --out total.SNP.pca
+
+绘图命令看[[PCA绘图]]
+
+## 4.3 Admixture
+
+注意Admixture并不是运行一次就可以了，需要尽可能多的重复运行几次以下命令减小误差。
+
+	for k in {2..10}; do
+	    admixture --cv /your/path/Species.bedformat $k -j8 --seed={seed}| tee log${k}.out
+	done

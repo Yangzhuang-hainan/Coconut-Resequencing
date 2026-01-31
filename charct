@@ -1,0 +1,57 @@
+PopLDdecay -InVCF Filter.snp.vcf.gz -SubPop Domestic.list -OutStat Domestic -MaxDist 300
+
+perl Plot_MultiPop.pl \
+-inList allpop.stats.list\
+-output LDdecay\
+-MaxDist 300\
+-keepR
+
+2.1 遗传多样性（pi）计算
+1)计算每个亚群单点的 pi值:
+
+	vcftools --gzvcf Filter.snp.vcf.gz --keep Domestic.list --site-pi --out Domestic
+
+
+2)滑窗计算每个亚群窗口区域的 pi值:
+
+	vcftools --gzvcf Filter.snp.vcf.gz --keep Domestic.list --window-pi 100000 --window-pi-step 20000 --out Domestic
+
+
+3)基于单点的 pi值计算全基因组的 pi均值:
+(1)统计全基因组每条染色体的非 N 长度
+
+	iTools Fatools stat -InPut genome.fa -OutPut chrom info.txt
+
+(2)统计全基因组的 pi均值
+
+	python calculate_wG _pi.py -c chrom_info.txt -d ./ -p Domestic -o Domestic wide genome.pi
+
+2.2 遗传距离（fst）计算
+
+1)计算每个亚群单点的 fst 值:
+
+	vcftools
+	--gzvcf Filter.snp.vcf.gz \
+	--weir-fst-pop Domestic.list \
+	--weir-fst-pop Feral.list\
+	--out Domestic Feral
+
+
+2)滑窗计算每个亚群窗口区域的 fst 值 :
+
+	vcftools \
+	--gzvcf Filter.snp.vcf.gz\
+	--weir-fst-pop Domestic.list \
+	--weir-fst-pop Feral.list \
+	--fst-window-size 100000
+	--fst-window-step 20000\
+	--out D_F
+
+3)基于单点的 fst 值计算全基因组的 fst 均值 :
+
+	python calculate_WG_fst.py \
+	-d ./\
+	-p1 Domestic \
+	-p2 Feral \
+	-o Domestic Feral wide genome.fst
+

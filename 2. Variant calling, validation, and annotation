@@ -1,0 +1,145 @@
+## 1.1 重测序样本二代测序数据（fq文件）过滤
+
+	fastp -i sample_R1.fq.gz -o sample_R1.clean.fq.gz \
+	      -I sample_R2.fq.gz -O sample_R2.clean.fq.gz \
+	      -q 20 -u 40 -l 70
+
+## 1.2 过滤数据比对至参考基因组
+①建索引
+
+	bwa index refer.fa
+	samtools dict refer.fa > refer.dict
+	samtools faidx refer.fa
+
+②比对
+
+	bwa mem -R '@RG\tID:sample\tLB:sample\tSM:sample\tPL:ILLUMINA' \
+		-t 30 refer.fa \
+		sample_R1.clean.fq.gz  sample_R2.clean.fq.gz | \
+		samtools view -Sb - > sample.pe.bam
+
+③比对后的文件排序、去重、建索引
+
+	gatk SortSam --INPUT sample.pe.bam \
+	     --OUTPUT sample.sort.bam \
+	     --SORT_ORDER coordinate
+
+    gatk MarkDuplicates -I sample.sort.bam \
+	     -O sample.sort.markdup.bam \
+	     -M sample.sort.markdup_metrics.txt
+
+    samtools index sample.sort.markdup.bam
+
+## 1.3 统计重测序数据比对质量
+
+①samtools统计比对率
+
+	samtools flagstat sample.sort.markdup.bam >  sample_flagstat.txt
+
+①初步获取变异信息文件——gvcf文件。[[批量生成和提交获取每个样本gvcf文件的脚本]]
+
+	gatk --java-options "-Xmx10g" HaplotypeCaller \
+		 -R refer.fa \
+		 -I sample.sort.markdup.bam \
+		 -ERC GVCF \
+		 -O sample.g.vcf.gz
+
+此处内存建议设置为bam文件的2倍
+
+②将多个gvcf文件合并，并按染色体进行拆分（这样能加快运行速度）。其中-L参数表示染色体编号，该编号与参考基因组的染色体名一致。[[批量合并所有gvcf文件的脚本]]
+   
+    gatk --java-options "-Xmx20g" CombineGVCFs \
+	     -R refer.fa \
+	     -V sample1.g.vcf.gz \
+	     -V sample2.g.vcf.gz \
+	     ...
+	     -V sampleN.g.vcf.gz \
+	     -L 1 \
+	     -O Species_chr.1.g.vcf.gz
+
+③基于合并的 gvcf文件进行基因型的推断，生成最终的VCF 文件。-L参数同上。[[批量推断所有染色体基因型的脚本]]
+
+    gatk --java-options "-Xmx100g" GenotypeGVCFs 
+	     -R refer.fa \
+	     -V Species_chr.1.g.vcf.gz \
+	     -L 1 \
+	     -O Species_chr.1.raw.vcf.gz
+
+④将SNP和INDEL从vcf文件中分开
+
+    gatk SelectVariants -select-type SNP \
+	     -V Species_chr.1.raw.vcf.gz \
+	     -O Species_chr.1.snp.vcf.gz
+
+    gatk SelectVariants -select-type INDEL \
+	     -V Species_chr.1.raw.vcf.gz \
+	     -O Species_chr.1.indel.vcf.gz
+
+## 1.5 变异数据过滤（这步参数很重要）
+
+①使用GATK通过变异位点测序质量进行硬过滤（第一步标记，第二步过滤）。
+此处硬过滤参数需要通过SNP数据集的数据分布特征进行设定，详情请看[[数据分布特征统计]]，当然你也可以使用GATK的推荐过滤参数，具体参数如下（https://github.com/broadinstitute/gatk-docs/blob/master/gatk3-tutorials/(howto)_Apply_hard_filters_to_a_call_set.md）
+
+	gatk --java-options "-Xmx10g" VariantFiltration \
+		 -V Species_chr.1.snp.vcf.gz \
+		 -filter "QD < 2.0" --filter-name "QD2" \
+		 -filter "QUAL < 30.0" --filter-name "QUAL30" \
+		 -filter "SOR > 3.0" --filter-name "SOR3" \
+		 -filter "FS > 60.0" --filter-name "FS60" \
+		 -filter "MQ < 40.0" --filter-name "MQ40" \
+		 -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
+		 -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
+		 -O Species_chr.1.fliter.snp.vcf.gz
+
+    vcftools --gzvcf Species_chr.1.fliter.snp.vcf.gz \
+		     --remove-filtered-all --recode --stdout | \
+		     gzip -c > Species_chr.1.pass.snp.vcf.gz
+
+
+②依据进化生物学新基因出现的特征进行过滤（排除出现频率过低的基因型，因为这些基因有可能是测序错误导致出现的假基因型）。--max-missing和--maf两个选项对结果影响较大，酌情调整参数。
+
+    vcftools --gzvcf Species_chr.1.pass.snp.vcf.gz \
+		     --min-alleles 2 --max-alleles 2 --recode --stdout | \
+		     gzip -c > Species_chr.1.bi.snp.vcf.gz
+
+    vcftools --gzvcf Species_chr.1.bi.snp.vcf.gz \
+		     --max-missing 0.5 --maf  0.05 --recode --stdout | \
+		     gzip -c > Species_chr.1.bi.maf0.05mis0.4.snp.vcf.gz
+
+③INDEL过滤
+
+	gatk --java-options "-Xmx10g" VariantFiltration \
+		 -V Species_chr.1.indel.vcf.gz \
+		 -filter "QD < 2.0" --filter-name "QD2" \
+		 -filter "QUAL < 30.0" --filter-name "QUAL30" \
+	     -filter "SOR > 5.0" --filter-name "SOR5" \
+		 -filter "FS > 100.0" --filter-name "FS100" \
+		 -filter "InbreedingCoeff < -0.8" --filter-name "InbreedingCoeff-0.8" \
+		 -O Species_chr.1.filter.indel.vcf.gz
+
+    vcftools --gzvcf Species_chr.1.filter.indel.vcf.gz \
+		     --remove-filtered-all --recode --stdout | \
+		     gzip -c > Species_chr.1.pass.indel.vcf.gz
+
+## 1.6 将所有染色体的变异信息文件进行合并
+
+^4fe183
+
+	bcftools concat -f vcf.list -o Species_OG_SNP.vcf
+	bgzip Species_OG_SNP.vcf
+	tabix Species_OG_SNP.vcf.gz
+
+## 2.2 snpEff
+
+	mkdir data
+	mkdir genomes spices
+
+genomes里放基因组（refer.fa），spices放注释文件（需要重命名为genes.gff）
+将snpEff下的snpEff.config删除
+
+	data.dir = ./data/
+	spices.genome:spices
+
+	java -jar ./snpEff.jar build -gff3 -v Clausena_la -noCheckCds -noCheckProtein
+
+	java -jar /work/share/ac8c44ycw9/guodz/tools/snpEff/snpEff.jar -v Clausena_la no_gx23_24.vcf.recode.vcf > no_gx23_24_anno.vcfll
