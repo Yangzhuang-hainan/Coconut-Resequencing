@@ -1,10 +1,38 @@
-1.1 filter SNPs
-vcftools --gzvcf grape.all.vcf.gz --keep muscat_nonmuscat.txt --max-missing 0.8 --maf 0.01 --recode --stdout |gzip -c > grape.muscat.vcf.gz
+1. SNP Filtering
+vcftools \
+  --gzvcf Coconut.vcf.gz \
+  --keep GWAS_group.txt \
+  --max-missing 0.8 \
+  --maf 0.01 \
+  --recode \
+  --stdout | gzip -c > GWAS_group.vcf.gz
 
-plink --allow-extra-chr --threads 20 -bfile prunData --out pc --pca 10 #plink计算10个pc
+2. Principal Component Analysis (PCA) with PLINK
+plink \
+  --allow-extra-chr \
+  --threads 20 \
+  --bfile prunData \
+  --out pc \
+  --pca 10
+
+3. Kinship Matrix Calculation with EMMAX
 emmax-kin-intel64 emmax_tri -v -d 10
 
-emmax-intel64 -v -d 10 -t /public200T/lintao_cau/lintao/workspace/yangtailai/vcf/tri_filter/emmax_tri -p ${i} -o ${i}_res -k /public200T/lintao_cau/lintao/workspace/yangtailai/vcf/tri_filter/emmax_tri.aBN.kinf -c /public200T/lintao_cau/lintao/workspace/yangtailai/vcf/tri_filter/pc.eigenvec
+4. GWAS Analysis with EMMAX
+emmax-intel64 \
+  -v -d 10 \
+  -t /path/to/emmax_tri \
+  -p ${i} \
+  -o ${i}_res \
+  -k /path/to/emmax_tri.aBN.kinf \
+  -c /path/to/pc.eigenvec
 
-/work/share/ac8c44ycw9/guodz/tools/LDBlockShow-1.40/bin/LDBlockShow -InVCF ../../01.get_GWAS_SNP/GWAS_SNP.vcf.gz -OutPut total_acid_chr2 -Region HiC_scaffold_2:1719774:1739774 -OutPdf -SeleVar 1 -InGFF ../../../00.data/01.genome/Clausena_la.gff3 -SpeSNPName spe.snp
-
+5. LD Block Visualization with LDBlockShow
+/LDBlockShow \
+  -InVCF GWAS_SNP.vcf.gz \
+  -OutPut total_acid_chr2 \
+  -Region Chrx:100000:200000 \
+  -OutPdf \
+  -SeleVar 1 \
+  -InGFF Coconut.gff3 \
+  -SpeSNPName spe.snp
