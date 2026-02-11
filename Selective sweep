@@ -1,0 +1,128 @@
+1. Data Preparation
+1.1 Split VCF by Chromosome
+
+For each chromosome ${i}:
+
+vcftools \
+  --vcf pop.vcf \
+  --chr ${i} \
+  --recode \
+  --stdout > pop.chr${i}.vcf
+
+
+Repeat for population 1 and population 2 to create chromosome-specific VCFs.
+
+1.2 Generate GENO Files for XP-CLR
+
+Convert VCF to XP-CLR GENO format:
+
+# Population 1
+plink \
+  --vcf pop.chr${i}.vcf \
+  --keep pop1.fam \
+  --chr ${i} \
+  --double-id \
+  --out pop.chr${i}.pop1 \
+  --recode 01 transpose \
+  --output-missing-genotype 9 \
+  --allow-extra-chr \
+  --set-missing-var-ids @:# \
+  --keep-allele-order
+
+cut -d " " -f 5- pop.chr${i}.pop1.tped | awk '{print $0" "}' > pop.chr${i}.pop1.geno
+
+# Population 2
+plink \
+  --vcf pop.chr${i}.vcf \
+  --keep pop2.fam \
+  --chr ${i} \
+  --double-id \
+  --out pop.chr${i}.pop2 \
+  --recode 01 transpose \
+  --output-missing-genotype 9 \
+  --allow-extra-chr \
+  --set-missing-var-ids @:# \
+  --keep-allele-order
+
+cut -d " " -f 5- pop.chr${i}.pop2.tped | awk '{print $0" "}' > pop.chr${i}.pop2.geno
+
+
+pop1.fam and pop2.fam contain two identical columns of sample IDs, tab-delimited:
+
+sample1   sample1
+sample2   sample2
+sample3   sample3
+
+1.3 Create SNP Files
+
+SNP files are needed to provide genetic map information.
+
+If a genetic map is available, use it.
+
+Otherwise, approximate with physical positions (cM = SNP position / 1,000,000).
+
+File format (tab-delimited):
+
+#SNP	id	cM	SNP_pos	Ref	Alt
+1	13023	0.027588	13023	C	T
+2	14784	0.031319	14784	C	T
+
+Each chromosome should have a separate SNP file.
+
+2. XP-CLR Calculation
+
+Run XP-CLR chromosome by chromosome:
+
+XPCLR \
+  -xpclr pop.chr${i}.pop1.geno \
+          pop.chr${i}.pop2.geno \
+          chr${i}.snp \
+          xplcr.chr${i}.out \
+          -w1 0.005 200 2000 10 \
+          -p0 0.95
+
+
+Output columns:
+
+chr#  grid#  #SNPs_in_window  physical_pos  genetic_pos  XPCLR_score  max_s
+
+3. Merge Results and Identify Candidate Regions
+# Merge all chromosomes
+cat xplcr.chr*.out > xplcr.out
+
+# Select top 5% XP-CLR scores for candidate regions
+# (custom script can extract these regions; contact script author if needed)
+
+
+Candidate genes can then be extracted for GO/KEGG enrichment analysis.
+
+4. Prepare Data for Plotting
+echo -e "SNP\tCHR\tBP\tXPCLR" > xplcr.out.plot
+
+awk -F ' ' '{print $1":"$4"\t"$1"\t"$4"\t"$6}' xplcr.out >> xplcr.out.plot
+
+5. Manhattan Plot in R
+library(qqman)
+
+# Read data
+Results <- read.table("xplcr.out.plot", header=TRUE)
+
+# Plot
+pdf("xplcr.out.plot.manhattan.pdf", width=12, height=4)
+manhattan(
+  Results, 
+  p = "XPCLR", 
+  logp = FALSE, 
+  ylab = "XP-CLR", 
+  genomewideline = FALSE,
+  suggestiveline = FALSE, 
+  cex = 0.6, 
+  cex.axis = 0.9, 
+  col = c("darkgreen", "orange3"), 
+  ylim = c(0, 400)  # Set based on maximum XP-CLR score
+)
+
+# Horizontal line for top 5% XP-CLR threshold
+abline(h = 203.137858, lty = 3, col = "black")
+
+dev.off()
