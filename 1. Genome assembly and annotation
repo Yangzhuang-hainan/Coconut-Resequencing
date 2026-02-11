@@ -1,56 +1,105 @@
-fastp -i rawdata/R1.fastq.gz -I rawdata/R2.fastq.gz \
-      -o clean/R1.clean.fq.gz -O clean/R2.clean.fq.gz \
-      -n 0 -f 5 -F 5 -t 5 -T 5
+1. Read Quality Control
+fastp \
+  -i rawdata/R1.fastq.gz \
+  -I rawdata/R2.fastq.gz \
+  -o clean/R1.clean.fq.gz \
+  -O clean/R2.clean.fq.gz \
+  -n 0 \
+  -f 5 -F 5 \
+  -t 5 -T 5
 
-# Step 2: K-mer统计（以k=21为例）
-kmc  -k21 -t16 -m64 -ci1 -cs10000000  @hifi.fofn  kmcdb tmp
-#histo
+2. Genome Size Estimation (K-mer Analysis)
+2.1 K-mer Counting (k = 21)
+kmc -k21 -t16 -m64 -ci1 -cs10000000 @hifi.fofn kmcdb tmp
+
+2.2 Generate Histogram
 kmc_tools transform kmcdb histogram sample.histo -cx10000000
-# genomescope
-Rscript genomescope.R -i  sample.histo  -k 21  -o ./
 
+2.3 GenomeScope Analysis
+Rscript genomescope.R -i sample.histo -k 21 -o ./
+
+3. Genome Assembly
+3.1 HiFi-only Assembly (hifiasm)
 hifiasm -o prefix -t 40 hifi.fq.gz
-# HiFi reads + ONT reads 组装
-hifiasm -o prefix -t 40 -ul ont.fq.gz hifi.fq.gz 
-# verkko 组装
-verkko -d ./ --hifi hifi.fq.gz  --nano ont.fq.gz --no-cleanup --grid --ovs-run 8 60 60 --mer-run 4 32 60 --cns-run 8 32 40 --ovb-run 8 60 60
 
-# bowtie2
+3.2 Hybrid Assembly (HiFi + ONT)
+hifiasm -o prefix -t 40 -ul ont.fq.gz hifi.fq.gz
+
+3.3 Verkko Assembly
+verkko \
+  -d ./ \
+  --hifi hifi.fq.gz \
+  --nano ont.fq.gz \
+  --no-cleanup \
+  --grid \
+  --ovs-run 8 60 60 \
+  --mer-run 4 32 60 \
+  --cns-run 8 32 40 \
+  --ovb-run 8 60 60
+
+4. Read Mapping to Assembly
 bowtie2-build --threads 8 Contig.fasta Contig.fasta
-bowtie2 --very-sensitive -L 30 --score-min L,-0.6,-0.2 --end-to-end --reorder --phred33-quals -p 4 -x Contig.fasta -U clean_R1.fq.gz | samtools view -b - > aligned.R1.bam
-bowtie2 --very-sensitive -L 30 --score-min L,-0.6,-0.2 --end-to-end --reorder --phred33-quals -p 4 -x Contig.fasta -U clean_R2.fq.gz | samtools view -b - > aligned.R2.bam
 
-## Polish
-# nextpolish2
-minimap2 --secondary=no -t 40 -ax map-hifi genome.fasta hifi.fq.gz | samtools sort -o aln.sort.bam
+bowtie2 --very-sensitive -L 30 --score-min L,-0.6,-0.2 \
+  --end-to-end --reorder --phred33-quals -p 4 \
+  -x Contig.fasta -U clean_R1.fq.gz | \
+  samtools view -b - > aligned.R1.bam
+
+bowtie2 --very-sensitive -L 30 --score-min L,-0.6,-0.2 \
+  --end-to-end --reorder --phred33-quals -p 4 \
+  -x Contig.fasta -U clean_R2.fq.gz | \
+  samtools view -b - > aligned.R2.bam
+
+5. Assembly Polishing (NextPolish2)
+# HiFi alignment
+minimap2 --secondary=no -t 40 -ax map-hifi genome.fasta hifi.fq.gz | \
+  samtools sort -o aln.sort.bam
 samtools index aln.sort.bam
+
+# Yak k-mer databases
 yak count -b37 -t 20 -k 21 -o k21.yak <(cat NGS.fastq)
 yak count -b37 -t 20 -k 31 -o k31.yak <(cat NGS.fastq)
+
+# Polishing
 nextPolish2 aln.sort.bam genome.fasta k31.yak k21.yak -t 40 -o polish.fasta
 
-## 端粒序列识别
+6. Telomere Identification
 tidk explore --minimum 5 --maximum 12 genome.fasta
 tidk search --string AAACCCT genome.fasta
 
-## 着丝粒序列识别
-# TRF
-trf genome.fasta  2 7 7 80 10 50 500 -f -d -h
-# RepeatMasker
-RepeatMasker -engine abblast -lib repeatmasker.lib genome.fasta -nolow -no_is -html -qq -gff -dir ./
-# SRF
+7. Centromere-Related Repeat Identification
+7.1 Tandem Repeat Finder
+trf genome.fasta 2 7 7 80 10 50 500 -f -d -h
+
+7.2 RepeatMasker
+RepeatMasker \
+  -engine abblast \
+  -lib repeatmasker.lib \
+  genome.fasta \
+  -nolow -no_is \
+  -html -qq -gff \
+  -dir ./
+
+7.3 Satellite Repeat Finder (SRF)
 bedtools getfasta -fi genome.fasta -bed repeatmasker.bed -fo highTE.fa
-kmc -fm -k35 -t16  -ci200  -cs1000000  highTE.fa  count.kmc  tmp_dir
-kmc_dump  count.kmc count.txt
+
+kmc -fm -k35 -t16 -ci200 -cs1000000 highTE.fa count.kmc tmp_dir
+kmc_dump count.kmc count.txt
+
 srf -l 20 -p prefix count.txt > prefix.srf.fa
-makeblastdb  -in  genome.fasta -input_type fasta -dbtype nucl -title chr_db -out chr_db
-blastn  -db  chr_db  -query prefix.srf.fa -out srf.blastn.m6.txt  -outfmt 6 -num_threads 20
 
-# Syri识别共线性
+makeblastdb -in genome.fasta -input_type fasta -dbtype nucl -title chr_db -out chr_db
+blastn -db chr_db -query prefix.srf.fa -out srf.blastn.m6.txt -outfmt 6 -num_threads 20
+
+8. Synteny and Structural Variation (SyRI)
 minimap2 -t 16 -x asm5 -c --eqx ref.fa query.fa > prefix.paf
-syri -c prefix.paf -F P -r ref.fa -q query.fa
-# plotSR
-plotsr  --sr syri.out  --genomes genomes.txt  -H 8 -W 5
 
-## QV评估
-meryl k=21  threads=10  memory=50g  count output reads.meryl clean.R1.fastq.gz clean.R2.fastq.gz
+syri -c prefix.paf -F P -r ref.fa -q query.fa
+
+plotsr --sr syri.out --genomes genomes.txt -H 8 -W 5
+
+9. Assembly Quality Evaluation (Merqury QV)
+meryl k=21 threads=10 memory=50g count output reads.meryl \
+  clean.R1.fastq.gz clean.R2.fastq.gz
+
 merqury-1.3/merqury.sh reads.meryl genome.fasta prefix
