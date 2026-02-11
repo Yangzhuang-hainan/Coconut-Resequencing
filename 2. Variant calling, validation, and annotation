@@ -55,30 +55,30 @@ gatk --java-options "-Xmx20g" CombineGVCFs \
   ...
   -V sampleN.g.vcf.gz \
   -L 1 \
-  -O Species_chr.1.g.vcf.gz
+  -O Coconut_chr.1.g.vcf.gz
 
 2.3 Joint Genotyping
 gatk --java-options "-Xmx100g" GenotypeGVCFs \
   -R refer.fa \
-  -V Species_chr.1.g.vcf.gz \
+  -V Coconut_chr.1.g.vcf.gz \
   -L 1 \
-  -O Species_chr.1.raw.vcf.gz
+  -O Coconut_chr.1.raw.vcf.gz
 
 2.4 Separate SNPs and INDELs
 gatk SelectVariants \
   -select-type SNP \
-  -V Species_chr.1.raw.vcf.gz \
-  -O Species_chr.1.snp.vcf.gz
+  -V Coconut_chr.1.raw.vcf.gz \
+  -O Coconut_chr.1.snp.vcf.gz
 
 gatk SelectVariants \
   -select-type INDEL \
-  -V Species_chr.1.raw.vcf.gz \
-  -O Species_chr.1.indel.vcf.gz
+  -V Coconut_chr.1.raw.vcf.gz \
+  -O Coconut_chr.1.indel.vcf.gz
 
 3. Variant Filtering
 3.1 SNP Hard Filtering
 gatk --java-options "-Xmx10g" VariantFiltration \
-  -V Species_chr.1.snp.vcf.gz \
+  -V Coconut_chr.1.snp.vcf.gz \
   -filter "QD < 2.0" --filter-name "QD2" \
   -filter "QUAL < 30.0" --filter-name "QUAL30" \
   -filter "SOR > 3.0" --filter-name "SOR3" \
@@ -86,44 +86,44 @@ gatk --java-options "-Xmx10g" VariantFiltration \
   -filter "MQ < 40.0" --filter-name "MQ40" \
   -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
   -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
-  -O Species_chr.1.filter.snp.vcf.gz
+  -O Coconut_chr.1.filter.snp.vcf.gz
 
 Keep only PASS variants:
-vcftools --gzvcf Species_chr.1.filter.snp.vcf.gz \
+vcftools --gzvcf Coconut_chr.1.filter.snp.vcf.gz \
   --remove-filtered-all --recode --stdout | \
-  gzip -c > Species_chr.1.pass.snp.vcf.gz
+  gzip -c > Coconut_chr.1.pass.snp.vcf.gz
 
 3.2 Population-Level SNP Filtering
 # Keep biallelic SNPs
-vcftools --gzvcf Species_chr.1.pass.snp.vcf.gz \
+vcftools --gzvcf Coconut_chr.1.pass.snp.vcf.gz \
   --min-alleles 2 --max-alleles 2 \
-  --recode --stdout | gzip -c > Species_chr.1.bi.snp.vcf.gz
+  --recode --stdout | gzip -c > Coconut_chr.1.bi.snp.vcf.gz
 
 # Filter by missing rate and MAF
-vcftools --gzvcf Species_chr.1.bi.snp.vcf.gz \
+vcftools --gzvcf Coconut_chr.1.bi.snp.vcf.gz \
   --max-missing 0.5 \
   --maf 0.05 \
   --recode --stdout | \
-  gzip -c > Species_chr.1.bi.maf0.05mis0.5.snp.vcf.gz
+  gzip -c > Coconut_chr.1.bi.maf0.05mis0.5.snp.vcf.gz
 
 3.3 INDEL Filtering
 gatk --java-options "-Xmx10g" VariantFiltration \
-  -V Species_chr.1.indel.vcf.gz \
+  -V Coconut_chr.1.indel.vcf.gz \
   -filter "QD < 2.0" --filter-name "QD2" \
   -filter "QUAL < 30.0" --filter-name "QUAL30" \
   -filter "SOR > 5.0" --filter-name "SOR5" \
   -filter "FS > 100.0" --filter-name "FS100" \
   -filter "InbreedingCoeff < -0.8" --filter-name "InbreedingCoeff-0.8" \
-  -O Species_chr.1.filter.indel.vcf.gz
+  -O Coconut_chr.1.filter.indel.vcf.gz
 
-vcftools --gzvcf Species_chr.1.filter.indel.vcf.gz \
+vcftools --gzvcf Coconut_chr.1.filter.indel.vcf.gz \
   --remove-filtered-all --recode --stdout | \
-  gzip -c > Species_chr.1.pass.indel.vcf.gz
+  gzip -c > Coconut_chr.1.pass.indel.vcf.gz
 
 4. Merge Variants Across Chromosomes
-bcftools concat -f vcf.list -o Species_OG_SNP.vcf
-bgzip Species_OG_SNP.vcf
-tabix Species_OG_SNP.vcf.gz
+bcftools concat -f vcf.list -o Coconut_OG_SNP.vcf
+bgzip Coconut_OG_SNP.vcf
+tabix Coconut_OG_SNP.vcf.gz
 
 5. Functional Annotation with SnpEff
 5.1 Prepare Directory Structure
@@ -131,16 +131,16 @@ mkdir data
 mkdir genomes spices
 
 
-Put the reference genome (refer.fa) into genomes/
+Put the reference genome (Coconut.fa) into genomes/
 
-Put the annotation file (renamed to genes.gff) into spices/
+Put the annotation file (renamed to Coconut.gff) into spices/
 
 5.2 Configure SnpEff
 
 Edit snpEff.config:
 
 data.dir = ./data/
-spices.genome : spices
+Coconut.genome : Coconut
 
 5.3 Build Database
 java -jar snpEff.jar build -gff3 -v Coconut -noCheckCds -noCheckProtein
