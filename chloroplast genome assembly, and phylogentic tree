@@ -1,11 +1,39 @@
+1. GetOrganelle Database Configuration
+
+Add plant plastid and mitochondrial reference databases:
+
 get_organelle_config.py --add embplant_pt,embplant_mt
 
-get_organelle_from_reads.py -1 sample_1.fq.gz -2 sample_2.fq.gz -o sample -R 5 -k 21,45,65,85,105,127 -F embplant_pt -t 8 
+2. Organelle Genome Assembly
+get_organelle_from_reads.py \
+  -1 sample_1.fq.gz \
+  -2 sample_2.fq.gz \
+  -o sample \
+  -R 5 \
+  -k 21,45,65,85,105,127 \
+  -F embplant_pt \
+  -t 8
 
-perl ~/tools/PGA/PGA.pl -r /work/share/ac8c44ycw9/guodz/tools/PGA/test/Coco_n -t /work/share/ac8c44ycw9/guodz/Cocos_nucifera/01.chloroplast/01.assemble/02.1.newCoco_pt/erro -i 2000 -p 40 -q 0.5,2 -o an_new1 -f linear -l Coco_pt_anno
+3. Chloroplast Genome Annotation (PGA)
+perl ~/tools/PGA/PGA.pl \
+  -r /path/to/reference_genome \
+  -t /path/to/target_genome \
+  -i 2000 \
+  -p 40 \
+  -q 0.5,2 \
+  -o an_new1 \
+  -f linear \
+  -l Coco_pt_anno
 
+4. Merge Chloroplast Genomes
 cat *fasta > Coconut_pt.fasta
 
-mafft  --thread 20 Coconut_pt.fasta > Coconut_pt_mafft.fasta
+5. Multiple Sequence Alignment
+mafft --thread 20 Coconut_pt.fasta > Coconut_pt_mafft.fasta
 
-iqtree -s ../01.mafft/new_pt_tree_mafft.fa -B 100000 -o NC_017602_Elaeis_guineensis --prefix Coco_pt
+6. Phylogenetic Tree Construction (IQ-TREE)
+iqtree \
+  -s ../01.mafft/new_pt_tree_mafft.fa \
+  -B 100000 \
+  -o NC_017602_Elaeis_guineensis \
+  --prefix Coco_pt
