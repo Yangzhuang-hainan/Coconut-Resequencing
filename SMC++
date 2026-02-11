@@ -1,66 +1,68 @@
-## 1 提取待分析群体样本的vcf文件
+1. Extract Population-Specific VCF Files
+vcftools \
+  --gzvcf Coconut.prune.in.vcf \
+  --indv popA_sample_1 \
+  --indv popA_sample_2 \
+  --indv popB_sample_1 \
+  --indv popB_sample_2 \
+  --indv popC_sample_1 \
+  ...
+  --indv all_samples_to_analyze \
+  --recode \
+  --out Coconut_smcpp
 
-使用[[3 构建系统发育树#^5e689f]]输出的vcf文件
-由于smc++很吃内存，因此不需要所有样本都加进来计算。实际测试下来一般一个群体50个样本就能有较好的结果，低于30个样本效果欠佳。
+# Compress and index
+bgzip -f Coconut_smcpp.vcf
+tabix Coconut_smcpp.vcf.gz
 
-	vcftools --gzvcf Species.maf0.05.geno0.1.prune.in.vcf \
-			 --indv popA_sample_1 \
-			 --indv popA_sample_2 \
-			 --indv popB_sample_1 \
-			 --indv popB_sample_2 \
-			 --indv popC_sample_1 \
-			 ...
-			 --indv all_sample_that_need_to_analyzed \
-			 --recode --out Species_smcpp
-	
-	bgzip -f Species_smcpp.vcf
-	
-	tabix Species_smcpp.vcf.gz
-	
-	vcftools --gzvcf Coco_plink.vcf.gz --max-missing 1 --mac 1 --recode --stdout |bgzip -c > new_Coco_plink.vcf.gz
-	tabix new_Coco_plink.vcf.gz
+2. Convert VCF to SMC Format
+cat Chr.txt | while read line; do
+    smc++ vcf2smc \
+       Coconut_smcpp.vcf.gz \
+        ./popA/popA_$line.smc.gz \
+        $line \
+        popA:sample1,sample2,sample3,...,sampleN
+done
 
-	plink --vcf /work/share/ac8c44ycw9/guodz/Cocos_nucifera/new_population_analysis/01.vcf/Coco_NO_outgroup.vcf.gz --keep-allele-order --recode vcf-iid --out Coco_plink --threads 40
-	bgzip Coco_plink.vcf
-	tabix -p vcf Coco_plink.vcf.gz
+3. Estimate Demographic History
+smc++ estimate -o popA/ $Mu ./popA/popA.*.smc.gz
 
+## $Mu is the mutation rate; obtain from literature for your species.
 
+4. Plot Demographic History
+smc++ plot -c SMCPP_popA.pdf ./popA/model.final.json -g $generation
 
-	cat Chr.txt|while read line;
-	do
-	    smc++ vcf2smc Species_smcpp.vcf.gz ./popA/popA_$line.smc.gz $line popA:sample1,sample2,sample3,...,sampleN
-	done
+## $generation is the generation time (birth to reproductive age). Example: humans = 25, mouse = 1.
 
+5. Multiple Populations
 
-	smc++ estimate -o popA/ $Mu /your/path/popA/popA.*.smc.gz
+Repeat steps 2–4 for each population of interest.
 
+6. Estimate Divergence Time Between Two Populations
+6.1 Convert VCF to SMC for Pairwise Populations
+mkdir G1toG2_3
 
-**注意$Mu表示的是突变率，这个数据请查阅你研究对象文献报道的数据**
-
-
-	smc++ plot -c SMCPP_popA.pdf /your/path/popA/model.final.json -g $generation
-
-**注意$generation表示的是物种一世代时间，即从出生到一般生殖年龄的时间，例如人是25，鼠是1**
-
-
-多个群体则重复以上内容
-
-
-评估2个群体的分歧时间
-
-	mkdir G1toG2_3
-	cat Chr.txt|while read line;
-	do
-    smc++ vcf2smc Species_smcpp.vcf.gz ./popAtopopB/popAtopopB_$line.smc.gz $line popA:sample1,sample2,sample3,...,sampleN popB:sample1,sample2,sample3,...,sampleN
+cat Chr.txt | while read line; do
+    smc++ vcf2smc \
+        Coconut_smcpp.vcf.gz \
+        ./popAtopopB/popAtopopB_$line.smc.gz \
+        $line \
+        popA:sample1,sample2,... \
+        popB:sample1,sample2,...
     
-    smc++ vcf2smc Species_smcpp.vcf.gz ./popAtopopB/popBtopopA_$line.smc.gz $line popB:sample1,sample2,sample3,...,sampleN popA:sample1,sample2,sample3,...,sampleN
-	done
+    smc++ vcf2smc \
+        Coconut_smcpp.vcf.gz \
+        ./popAtopopB/popBtopopA_$line.smc.gz \
+        $line \
+        popB:sample1,sample2,... \
+        popA:sample1,sample2,...
+done
 
-分歧的时间估计
+6.2 Split and Estimate Divergence Time
+smc++ split -o split_popAtopopB/ \
+    popA/model.final.json \
+    popB/model.final.json \
+    popAtopopB/*.smc.gz
 
-		smc++ split -o split_popAtopopB/ popA/model.final.json popB/model.final.json popAtopopB/*.smc.gz
-
-
-绘图
-
-	smc++ plot joint.pdf split_G1toG3/model.final.json -c
+6.3 Plot Joint Demographic History
+smc++ plot joint.pdf split_G1toG3/model.final.json -c
